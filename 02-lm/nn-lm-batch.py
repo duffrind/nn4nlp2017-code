@@ -30,15 +30,15 @@ i2w = {v: k for k, v in w2i.items()}
 nwords = len(w2i)
 
 # Start DyNet and define trainer
-model = dy.Model()
+model = dy.ParameterCollection()
 trainer = dy.AdamTrainer(model, alpha=0.001)
 
 # Define the model
 W_emb = model.add_lookup_parameters((nwords, EMB_SIZE)) # Word weights at each position
-W_h_p = model.add_parameters((HID_SIZE, EMB_SIZE * N))    # Weights of the softmax
-b_h_p = model.add_parameters((HID_SIZE))                  # Weights of the softmax
-W_sm_p = model.add_parameters((nwords, HID_SIZE))         # Weights of the softmax
-b_sm_p = model.add_parameters((nwords))                   # Softmax bias
+W_h = model.add_parameters((HID_SIZE, EMB_SIZE * N))    # Weights of the softmax
+b_h = model.add_parameters((HID_SIZE))                  # Weights of the softmax
+W_sm = model.add_parameters((nwords, HID_SIZE))         # Weights of the softmax
+b_sm = model.add_parameters((nwords))                   # Softmax bias
 
 # A function to calculate scores for one value
 def calc_score_of_histories(words, dropout=0.0):
@@ -47,15 +47,11 @@ def calc_score_of_histories(words, dropout=0.0):
   # Lookup the embeddings and concatenate them
   emb = dy.concatenate([dy.lookup_batch(W_emb, x) for x in words])
   # Create the hidden layer
-  W_h = dy.parameter(W_h_p)
-  b_h = dy.parameter(b_h_p)
   h = dy.tanh(dy.affine_transform([b_h, W_h, emb]))
   # Perform dropout
   if dropout != 0.0:
     h = dy.dropout(h, dropout)
   # Calculate the score and return
-  W_sm = dy.parameter(W_sm_p)
-  b_sm = dy.parameter(b_sm_p)
   return dy.affine_transform([b_sm, W_sm, h])
 
 # Calculate the loss value for the entire sentence
@@ -92,7 +88,7 @@ def generate_sent():
 last_dev = 1e20
 best_dev = 1e20
 
-for ITER in range(100):
+for ITER in range(5):
   # Perform training
   random.shuffle(train)
   train_words, train_loss = 0, 0.0
@@ -104,8 +100,8 @@ for ITER in range(100):
     my_loss.backward()
     trainer.update()
     if (sent_id+1) % 5000 == 0:
-      print("--finished %r sentences" % (sent_id+1))
-  print("iter %r: train loss/word=%.4f, ppl=%.4f, time=%.2fs" % (ITER, train_loss/train_words, math.exp(train_loss/train_words), time.time()-start))
+      print("--finished %r sentences (word/sec=%.2f)" % (sent_id+1, train_words/(time.time()-start)))
+  print("iter %r: train loss/word=%.4f, ppl=%.4f (word/sec=%.2f)" % (ITER, train_loss/train_words, math.exp(train_loss/train_words), train_words/(time.time()-start)))
   # Evaluate on dev set
   dev_words, dev_loss = 0, 0.0
   start = time.time()
@@ -113,7 +109,6 @@ for ITER in range(100):
     my_loss = calc_sent_loss(sent)
     dev_loss += my_loss.value()
     dev_words += len(sent)
-    trainer.update()
   # Keep track of the development accuracy and reduce the learning rate if it got worse
   if last_dev < dev_loss:
     trainer.learning_rate /= 2
@@ -123,7 +118,7 @@ for ITER in range(100):
     model.save("model.txt")
     best_dev = dev_loss
   # Save the model
-  print("iter %r: dev loss/word=%.4f, ppl=%.4f, time=%.2fs" % (ITER, dev_loss/dev_words, math.exp(dev_loss/dev_words), time.time()-start))
+  print("iter %r: dev loss/word=%.4f, ppl=%.4f (word/sec=%.2f)" % (ITER, dev_loss/dev_words, math.exp(dev_loss/dev_words), dev_words/(time.time()-start)))
   # Generate a few sentences
   for _ in range(5):
     sent = generate_sent()
